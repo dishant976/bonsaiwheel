@@ -33,14 +33,21 @@ module.exports = async function handler(req, res) {
       const j = await cmd(['GET', k]);
       return safeParse(j && j.result, fallback);
     };
-    // Check-ins live in a hash: HGETALL → [field, value, field, value, ...]
+    // Check-ins live in a hash: HGETALL → [field, value, ...] (or object on some plans)
     const getCheckins = async () => {
       const j = await cmd(['HGETALL', CHK_KEY]);
-      const arr = j && Array.isArray(j.result) ? j.result : [];
+      const raw = j && j.result;
       const list = [];
-      for (let i = 0; i + 1 < arr.length; i += 2) {
-        const meta = safeParse(arr[i + 1], {});
-        list.push({ a: arr[i], h: meta.h || '', ts: meta.ts || 0 });
+      if (Array.isArray(raw)) {
+        for (let i = 0; i + 1 < raw.length; i += 2) {
+          const meta = safeParse(raw[i + 1], {});
+          list.push({ a: raw[i], h: meta.h || '', ts: meta.ts || 0 });
+        }
+      } else if (raw && typeof raw === 'object') {
+        for (const k of Object.keys(raw)) {
+          const meta = safeParse(raw[k], {});
+          list.push({ a: k, h: meta.h || '', ts: meta.ts || 0 });
+        }
       }
       return list;
     };
@@ -71,8 +78,12 @@ module.exports = async function handler(req, res) {
         const lenJ = await cmd(['HLEN', CHK_KEY]);
         if ((lenJ && lenJ.result || 0) >= 5000) return res.status(429).json({ error: 'Check-in list full' });
         // HSET is atomic per wallet — concurrent activations can never wipe each other
-        await cmd(['HSET', CHK_KEY, a, JSON.stringify({ h, ts: Date.now() })]);
+        const ts = Date.now();
+        const setJ = await cmd(['HSET', CHK_KEY, a, JSON.stringify({ h, ts })]);
+        if (setJ && setJ.error) return res.status(500).json({ error: 'Storage write failed: ' + setJ.error });
         const list = await getCheckins();
+        // A read replica may not have caught up yet — guarantee our own write is in the response
+        if (!list.some((c) => c.a === a)) list.push({ a, h, ts });
         return res.status(200).json({ ok: true, checkins: list });
       }
 
