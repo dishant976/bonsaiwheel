@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bonsai Wheel — On-Chain Bonsai Giveaways</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0f1a13;
+  --surface:#16241b;
+  --surface2:#1d2f23;
+  --line:#2c4433;
+  --moss:#7fa876;
+  --moss-dim:#4d6b4a;
+  --bark:#8a6b4f;
+  --washi:#ece5d3;
+  --washi-dim:#9aa58f;
+  --lantern:#e5b45b;
+  --danger:#c96b5a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 70% -10%, #1a2c1f 0%, transparent 60%),
+    var(--ink);
+  color:var(--washi);
+  font-family:'Zen Kaku Gothic New',sans-serif;
+  min-height:100vh;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:26px}
+.eyebrow{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--moss);margin-bottom:6px}
+h1{font-family:'Shippori Mincho',serif;font-weight:700;font-size:clamp(26px,4vw,40px);line-height:1.1}
+h1 .accent{color:var(--moss)}
+.stats{display:flex;gap:22px;text-align:right}
+.stat b{display:block;font-family:'Shippori Mincho',serif;font-size:22px;color:var(--washi)}
+.stat span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa58f}
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:26px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+.card h2{font-family:'Shippori Mincho',serif;font-size:17px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.card h2::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--moss)}
+
+/* Wheel */
+.wheelbox{display:flex;flex-direction:column;align-items:center;gap:16px}
+.wheelstage{position:relative;width:min(440px,90vw);aspect-ratio:1}
+canvas{width:100%;height:100%;display:block}
+.pointer{position:absolute;top:-6px;left:50%;transform:translateX(-50%);z-index:3;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
+.hub{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.hub .kanji{font-family:'Shippori Mincho',serif;font-size:30px;color:var(--washi);opacity:.9;text-shadow:0 0 14px rgba(0,0,0,.6)}
+button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;font-weight:700;transition:transform .12s ease, box-shadow .12s ease, background .12s ease}
+button:active{transform:translateY(1px)}
+button:focus-visible{outline:2px solid var(--lantern);outline-offset:2px}
+.spinbtn{background:var(--moss);color:var(--ink);font-size:16px;padding:12px 28px;letter-spacing:.05em}
+.spinbtn:hover{background:#8fbb85}
+.spinbtn.gold{background:var(--lantern)}
+.spinbtn.gold:hover{background:#f0c876}
+.tierchip{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;letter-spacing:.04em}
+.tier-g{background:rgba(229,180,91,.16);color:var(--lantern);border:1px solid rgba(229,180,91,.4)}
+.tier-f{background:rgba(127,168,118,.14);color:var(--moss);border:1px solid rgba(127,168,118,.4)}
+.spinbtn:disabled{background:var(--moss-dim);color:#c9d4c2;cursor:not-allowed}
+.ghostbtn{background:transparent;color:var(--washi);border:1px solid var(--line);padding:9px 16px;font-size:13px;font-weight:500}
+.ghostbtn:hover{border-color:var(--moss)}
+.dangerbtn{background:transparent;color:var(--danger);border:1px solid #5a3a33;padding:9px 16px;font-size:13px;font-weight:500}
+.watchbadge{display:flex;align-items:center;gap:8px;font-size:13px;color:#9aa58f}
+.watchbadge .dot{width:8px;height:8px;border-radius:50%;background:var(--lantern);animation:pulse 1.6s ease infinite}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface2)}
+.chip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+/* Tabs */
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{background:transparent;border:1px solid var(--line);color:#9aa58f;padding:8px 16px;border-radius:999px;font-size:13px;font-weight:500}
+.tab.active{background:var(--surface2);color:var(--washi);border-color:var(--moss)}
+.tablecap{max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:var(--surface2);text-align:left;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#9aa58f;padding:9px 12px;font-weight:500}
+td{padding:9px 12px;border-top:1px solid var(--line)}
+.mono{font-family:'IBM Plex Mono',monospace;font-size:12px}
+.tickets{color:var(--lantern);font-weight:700}
+.rowdel{background:none;color:#6c7a64;font-size:15px;padding:0 4px}
+.rowdel:hover{color:var(--danger)}
+.empty{padding:26px;text-align:center;color:#6c7a64;font-size:13px}
+
+/* Host panel */
+textarea,input[type=text],input[type=password],input[type=number]{
+  width:100%;background:var(--ink);border:1px solid var(--line);border-radius:9px;color:var(--washi);
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;padding:10px 12px;
+}
+textarea{min-height:96px;resize:vertical}
+input:focus,textarea:focus{outline:1px solid var(--moss)}
+label{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa58f;margin:12px 0 6px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hostactions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.hint{font-size:12px;color:#6c7a64;margin-top:8px;line-height:1.5}
+.notice{font-size:13px;color:var(--moss);margin-top:10px;min-height:18px}
+
+/* Winner overlay */
+.overlay{position:fixed;inset:0;background:rgba(8,13,10,.82);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.overlay.show{display:flex}
+.lantern{
+  background:var(--surface);border:1px solid var(--lantern);border-radius:18px;padding:44px 50px;text-align:center;max-width:520px;width:100%;
+  box-shadow:0 0 60px rgba(229,180,91,.25), 0 0 120px rgba(229,180,91,.12);
+  animation:glowin .5s ease;
+}
+@keyframes glowin{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+.lantern .small{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--lantern);margin-bottom:14px}
+.lantern .addr{font-family:'IBM Plex Mono',monospace;font-size:clamp(14px,3vw,19px);word-break:break-all;color:var(--washi);margin-bottom:10px}
+.lantern .meta{font-size:13px;color:#9aa58f;margin-bottom:26px}
+footer{margin-top:34px;text-align:center;font-size:12px;color:#5d6b56}
+@media (prefers-reduced-motion: reduce){ .watchbadge .dot{animation:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">On-Chain Bonsai · Community Giveaway</div>
+      <h1 id="titleEl">Bonsai <span class="accent">Wheel</span></h1>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="statWallets">0</b><span>Wallets</span></div>
+      <div class="stat"><b id="statTickets">0</b><span>Collab asks</span></div>
+      <div class="stat"><b id="statSpins">0</b><span>Spots drawn</span></div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- LEFT: wheel -->
+    <div class="card wheelbox">
+      <div class="wheelstage">
+        <svg class="pointer" width="34" height="40" viewBox="0 0 34 40" aria-hidden="true">
+          <path d="M17 40 C 6 26, 2 14, 17 0 C 32 14, 28 26, 17 40 Z" fill="#7fa876" stroke="#0f1a13" stroke-width="2"/>
+          <path d="M17 6 L17 34" stroke="#0f1a13" stroke-width="1.5" opacity=".5"/>
+        </svg>
+        <canvas id="wheel" width="880" height="880"></canvas>
+        <div class="hub"><span class="kanji">盆栽</span></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div id="spinArea"></div>
+      <div class="notice" id="wheelNotice" aria-live="polite"></div>
+    </div>
+
+    <!-- RIGHT: entries / results / host -->
+    <div>
+      <div class="card" style="margin-bottom:22px">
+        <div class="tabs" role="tablist">
+          <button class="tab active" id="tabEntries" onclick="setTab('entries')">Entries</button>
+          <button class="tab" id="tabResults" onclick="setTab('results')">Winners</button>
+        </div>
+        <div class="tablecap" id="tableBox"></div>
+      </div>
+
+      <div class="card" id="hostCard">
+        <h2>Host garden</h2>
+        <div id="hostBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:26px" id="collabCard">
+    <h2>Collab with the Grove</h2>
+    <div class="hint" style="margin-top:0">Running a community and want to give spots to On-Chain Bonsai holders? Tell us how many Guaranteed, FCFS, and 1:1 spots you're offering — we'll run the draw on this wheel and your team watches live.</div>
+    <div class="row2">
+      <div><label>Community name</label><input type="text" id="reqName" placeholder="CRT Ghosts"></div>
+      <div><label>Contact (X handle or Discord)</label><input type="text" id="reqContact" placeholder="@yourproject"></div>
+    </div>
+    <div class="row2" style="grid-template-columns:1fr 1fr 1fr">
+      <div><label>Guaranteed spots</label><input type="number" id="reqG" min="0" placeholder="0"></div>
+      <div><label>FCFS spots</label><input type="number" id="reqF" min="0" placeholder="0"></div>
+      <div><label>1:1 spots</label><input type="number" id="reqO" min="0" placeholder="0"></div>
+    </div>
+    <label>Anything else</label>
+    <input type="text" id="reqNote" placeholder="Mint date, supply, why Bonsai…">
+    <div class="hostactions"><button class="ghostbtn" onclick="submitRequest()">Send request</button></div>
+    <div class="notice" id="reqMsg" aria-live="polite"></div>
+  </div>
+
+  <footer>Entries and results are shared — everyone who opens this wheel watches the same draw.</footer>
+</div>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true">
+  <div class="lantern">
+    <div class="small" id="winTitle">Spot Winner</div>
+    <div class="addr" id="winAddr"></div>
+    <div class="meta" id="winMeta"></div>
+    <button class="ghostbtn" onclick="closeOverlay()">Return to the garden</button>
+  </div>
+</div>
+
+<script>
+/* ================= state ================= */
+const KEY = 'grove-wheel:v1';
+const CONTRACT = '0xd1bd61c856c1aee57f0439bc018a2b712ce89580'; // On-Chain Bonsai
+const MAX_ID = 3200;
+const RPCS = ['https://ethereum-rpc.publicnode.com','https://eth.llamarpc.com','https://cloudflare-eth.com','https://rpc.flashbots.net'];
+const PALETTE = ['#7fa876','#8a6b4f','#5f8aa8','#c9a15c','#a87f9d','#6ba89e','#b06b5a','#95a85f'];
+let state = { config:{ title:'Bonsai Wheel', passHash:null }, entries:[], spins:[] };
+let isHost = false;
+let currentRotation = 0;
+let animating = false;
+let knownSpins = 0;
+let tab = 'entries';
+let pollTimer = null;
+let hideDim = null; // winner of an in-flight spin — not dimmed until the pointer stops
+
+const esc = s => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const short = a => a.length > 14 ? a.slice(0,6)+'…'+a.slice(-4) : a;
+const commColor = (()=>{ const map={}; let i=0; return c=>{ c=c||'Bonsai'; if(!map[c]) map[c]=PALETTE[i++ % PALETTE.length]; return map[c]; };})();
+
+async function sha(t){
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function sfc32(a,b,c,d){return function(){a>>>=0;b>>>=0;c>>>=0;d>>>=0;var t=(a+b)|0;a=b^b>>>9;b=c+(c<<3)|0;c=(c<<21|c>>>11);d=d+1|0;t=t+d|0;c=c+t|0;return(t>>>0)/4294967296}}
+
+/* ================= storage (Vercel: /api/state backed by Upstash Redis) ================= */
+let hostPass = sessionStorage.getItem('grove-host-pass') || null;
+async function load(){
+  try{
+    const r = await fetch('/api/state');
+    const j = await r.json();
+    if(j && j.value) state = j.value;
+    if(j && Array.isArray(j.requests)) requests = j.requests;
+  }catch(e){ /* first load or offline */ }
+}
+async function save(){
+  try{
+    const r = await fetch('/api/state', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-host-pass': hostPass || '' },
+      body: JSON.stringify(state)
+    });
+    if(r.status === 401){ notice('Host passcode rejected — unlock host again.'); isHost = false; render(); }
+  }catch(e){ notice('Could not save — check your connection and try again.'); }
+}
+
+/* ================= wheel drawing ================= */
+/* ================= draw model: alternating pools =================
+   Spins alternate strictly between two pools, so top holders are guaranteed
+   half the spots: spin 1, 3, 5… draws a Top 20 holder, spin 2, 4, 6…
+   draws from the rest of the community. Within each pool every wallet
+   has an exactly equal chance. If a pool runs out, spins fall through
+   to the other. Team spots don't consume a turn in the rotation. */
+const TOP_N = 20;
+function topSet(){
+  return new Set(state.entries
+    .slice().sort((a,b)=>b.n-a.n).slice(0,TOP_N)
+    .map(e=>e.a.toLowerCase()));
+}
+function spunCount(){ return state.spins.filter(s=>s.method!=='team').length; }
+function nextPool(){
+  const won = wonSet(), top = topSet();
+  const topPool  = state.entries.filter(e=> top.has(e.a.toLowerCase()) && !won.has(e.a.toLowerCase()));
+  const openPool = state.entries.filter(e=>!top.has(e.a.toLowerCase()) && !won.has(e.a.toLowerCase()));
+  const topTurn = spunCount() % 2 === 0;
+  if(topTurn  && topPool.length)  return { pool: topPool,  label:'Top 20' };
+  if(openPool.length)             return { pool: openPool, label:'Community' };
+  if(topPool.length)              return { pool: topPool,  label:'Top 20' };
+  return { pool: [], label:'—' };
+}
+function segments(){
+  const top = topSet();
+  const total = state.entries.length;
+  let start = -Math.PI/2;
+  return state.entries.map(e=>{
+    const frac = total ? 1/total : 0;
+    const seg = { ...e, top: top.has(e.a.toLowerCase()), a0:start, a1:start + frac*2*Math.PI };
+    start = seg.a1;
+    return seg;
+  });
+}
+function drawWheel(rot){
+  const cv = document.getElementById('wheel'), ctx = cv.getContext('2d');
+  const W = cv.width, C = W/2, R = C-14;
+  ctx.clearRect(0,0,W,W);
+  ctx.save(); ctx.translate(C,C); ctx.rotate(rot);
+
+  // outer bark ring
+  ctx.beginPath(); ctx.arc(0,0,R+10,0,7); ctx.fillStyle='#3b2f24'; ctx.fill();
+  ctx.beginPath(); ctx.arc(0,0,R+4,0,7); ctx.fillStyle='#584434'; ctx.fill();
+
+  const segs = segments();
+  if(!segs.length){
+    ctx.beginPath(); ctx.arc(0,0,R,0,7); ctx.fillStyle='#1d2f23'; ctx.fill();
+  }
+  const won = wonSet();
+  if(hideDim) won.delete(hideDim);
+  segs.forEach(s=>{
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,s.a0,s.a1); ctx.closePath();
+    ctx.fillStyle = s.top ? '#c9a15c' : '#7fa876';
+    ctx.globalAlpha = won.has(s.a.toLowerCase()) ? .28 : .88; ctx.fill(); ctx.globalAlpha=1;
+    ctx.strokeStyle='#0f1a13'; ctx.lineWidth=2; ctx.stroke();
+    const span = s.a1-s.a0;
+    if(span > 0.09){
+      ctx.save(); ctx.rotate((s.a0+s.a1)/2);
+      ctx.textAlign='right'; ctx.fillStyle='#0f1a13';
+      ctx.font=`${span>0.3?24:17}px 'IBM Plex Mono',monospace`;
+      ctx.fillText(short(s.a), R-22, 7);
+      ctx.restore();
+    }
+  });
+
+  // growth rings (signature)
+  ctx.globalAlpha=.14; ctx.strokeStyle='#0f1a13';
+  for(let r=R*0.2; r<R; r+=R*0.11){
+    ctx.beginPath(); ctx.arc(0,0,r + Math.sin(r)*3,0,7); ctx.lineWidth=1.5; ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+
+  // hub
+  ctx.beginPath(); ctx.arc(0,0,R*0.18,0,7); ctx.fillStyle='#16241b'; ctx.fill();
+  ctx.lineWidth=3; ctx.strokeStyle='#584434'; ctx.stroke();
+  ctx.restore();
+}
+
+/* ================= spin ================= */
+function wonSet(){ return new Set(state.spins.map(s=>String(s.winner).toLowerCase())); }
+function eligible(){ const w = wonSet(); return state.entries.filter(e=>!w.has(e.a.toLowerCase())); }
+function pickWinner(seed, pool){
+  const rng = sfc32(seed, seed^0x9e3779b9, seed^0x85ebca6b, seed^0xc2b2ae35);
+  for(let i=0;i<12;i++) rng();
+  return pool[Math.floor(rng()*pool.length)];
+}
+function rotationFor(entry){
+  const seg = segments().find(s=>s.a===entry.a && s.c===entry.c);
+  const mid = (seg.a0+seg.a1)/2;
+  // pointer sits at -90deg (top). Rotation r puts angle mid at top when r + mid = -PI/2 (mod 2PI)
+  const target = -Math.PI/2 - mid;
+  const base = currentRotation % (2*Math.PI);
+  return currentRotation + (2*Math.PI*6) + ((target - base) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
+}
+function animateTo(finalRot, done){
+  animating = true;
+  const startRot = currentRotation, delta = finalRot - startRot;
+  const dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 400 : 6200;
+  const t0 = performance.now();
+  (function frame(t){
+    const p = Math.min(1,(t-t0)/dur);
+    const ease = 1 - Math.pow(1-p, 3);
+    currentRotation = startRot + delta*ease;
+    drawWheel(currentRotation);
+    if(p<1) requestAnimationFrame(frame);
+    else { animating=false; done && done(); }
+  })(t0);
+}
+async function doSpin(tier){
+  if(animating) return;
+  const { pool, label } = nextPool();
+  if(!pool.length){ notice('No eligible wallets left — everyone on the wheel has already won.'); return; }
+  const seed = Date.now() >>> 0;
+  const winner = pickWinner(seed, pool);
+  const finalRot = rotationFor(winner);
+  const spin = { winner: winner.a, community: winner.c||'Bonsai', pool: label,
+                 held: winner.n, seed, ts: Date.now(), spot: state.spins.length+1, tier: tier||'FCFS',
+                 rot: finalRot % (2*Math.PI) };
+  state.spins.push(spin);
+  knownSpins = state.spins.length;
+  hideDim = spin.winner.toLowerCase();
+  await save();
+  render();
+  animateTo(finalRot, ()=>{ hideDim = null; drawWheel(currentRotation); showWinner(spin); });
+}
+function showWinner(spin){
+  document.getElementById('winTitle').textContent =
+    `Spot #${spin.spot} · ${spin.tier||'FCFS'}${spin.pool ? ' · '+spin.pool+' draw' : (spin.method==='team' ? ' · Team' : '')}`;
+  document.getElementById('winAddr').textContent = spin.winner;
+  document.getElementById('winMeta').textContent =
+    `${spin.held!=null ? spin.held+' bonsai held · ' : ''}seed ${spin.seed} · ${new Date(spin.ts).toLocaleString()}`;
+  document.getElementById('overlay').classList.add('show');
+}
+function closeOverlay(){ document.getElementById('overlay').classList.remove('show'); }
+
+/* ================= live watching ================= */
+async function poll(){
+  if(animating) return;
+  const before = JSON.stringify(state.entries) + '|' + requests.length;
+  const prevSpins = knownSpins;
+  await load();
+  if(state.spins.length > prevSpins){
+    const spin = state.spins[state.spins.length-1];
+    knownSpins = state.spins.length;
+    render();
+    if(typeof spin.rot === 'number'){
+      hideDim = String(spin.winner).toLowerCase();
+      const finalRot = currentRotation + 2*Math.PI*6 +
+        ((spin.rot - (currentRotation % (2*Math.PI))) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
+      animateTo(finalRot, ()=>{ hideDim = null; drawWheel(currentRotation); showWinner(spin); });
+    }
+  } else if ((JSON.stringify(state.entries) + '|' + requests.length) !== before || state.spins.length !== prevSpins){
+    knownSpins = state.spins.length;
+    render();
+  }
+}
+
+/* ================= on-chain holder snapshot ================= */
+async function rpcBatch(rpc, calls){
+  const body = calls.map((data,i)=>({jsonrpc:'2.0',id:i,method:'eth_call',params:[{to:CONTRACT,data},'latest']}));
+  const r = await fetch(rpc,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok) throw new Error('rpc '+r.status);
+  const j = await r.json();
+  return Array.isArray(j) ? j : [j];
+}
+async function loadHolders(){
+  const prog = document.getElementById('holderProg');
+  const btn = document.getElementById('loadBtn');
+  if(btn) btn.disabled = true;
+  const counts = {};
+  const CH = 100;
+  let ok = true;
+  for(let start=0; start<=MAX_ID; start+=CH){
+    const calls = [];
+    for(let id=start; id<Math.min(start+CH, MAX_ID+1); id++)
+      calls.push('0x6352211e' + id.toString(16).padStart(64,'0')); // ownerOf(uint256)
+    let res = null;
+    for(let t=0; t<RPCS.length && !res; t++){
+      try{ res = await rpcBatch(RPCS[t], calls); }catch(e){ res = null; }
+    }
+    if(!res){ ok = false; break; }
+    res.forEach(r=>{
+      if(r && typeof r.result === 'string' && r.result.length >= 66){
+        const addr = '0x' + r.result.slice(-40).toLowerCase();
+        if(!/^0x0{40}$/.test(addr) && addr !== '0x000000000000000000000000000000000000dead')
+          counts[addr] = (counts[addr]||0) + 1;
+      }
+    });
+    if(prog) prog.textContent = `Scanning tokens… ${Math.min(start+CH, MAX_ID+1)} / ${MAX_ID+1}`;
+    await new Promise(s=>setTimeout(s,150));
+  }
+  if(btn) btn.disabled = false;
+  const holders = Object.entries(counts).map(([a,n])=>({a, n, c:'Bonsai'})).sort((x,y)=>y.n-x.n);
+  if(!ok || !holders.length){ notice('Could not read holders from the RPC — wait a minute and try again.'); return; }
+  // keep collab entries from other communities, replace only the Bonsai batch
+  state.entries = [...holders, ...state.entries.filter(e=>(e.c||'Bonsai') !== 'Bonsai')];
+  state.config.snapshotTs = Date.now();
+  await save();
+  notice(`Loaded ${holders.length} holder wallets — tickets weighted by bonsai held.`);
+  render();
+}
+async function addTeam(){
+  const raw = document.getElementById('teamInput').value.trim();
+  if(!raw){ notice('Paste team wallets first.'); return; }
+  const won = wonSet();
+  let added = 0;
+  raw.split(/[\n,\s]+/).filter(Boolean).forEach(addr=>{
+    if(won.has(addr.toLowerCase())) return;
+    state.spins.push({ winner: addr, community:'Team', tickets:'—', seed:'—',
+      ts: Date.now(), spot: state.spins.length+1, tier:'Guaranteed', method:'team' });
+    won.add(addr.toLowerCase());
+    added++;
+  });
+  knownSpins = state.spins.length;
+  await save();
+  document.getElementById('teamInput').value = '';
+  notice(`Reserved ${added} guaranteed team spot${added===1?'':'s'}.`);
+  render();
+}
+
+/* ================= host ================= */
+async function claimHost(){
+  const pass = document.getElementById('passInput').value.trim();
+  if(!pass){ notice('Enter the host passcode.'); return; }
+  try{
+    const r = await fetch('/api/state?auth=1', { headers:{ 'x-host-pass': pass } });
+    if(r.ok){
+      hostPass = pass;
+      sessionStorage.setItem('grove-host-pass', pass);
+      isHost = true;
+      notice('Host unlocked.');
+    } else {
+      notice('Wrong passcode.');
+      return;
+    }
+  }catch(e){ notice('Could not reach the server — try again.'); return; }
+  render();
+}
+/* ================= collab requests (public form) ================= */
+let requests = [];
+async function submitRequest(){
+  const name = document.getElementById('reqName').value.trim();
+  const contact = document.getElementById('reqContact').value.trim();
+  const g = parseInt(document.getElementById('reqG').value,10)||0;
+  const f = parseInt(document.getElementById('reqF').value,10)||0;
+  const o = parseInt(document.getElementById('reqO').value,10)||0;
+  const note = document.getElementById('reqNote').value.trim();
+  const msg = document.getElementById('reqMsg');
+  if(!name || !contact){ msg.textContent = 'Community name and contact are required.'; return; }
+  if(g+f+o < 1){ msg.textContent = 'Offer at least one spot.'; return; }
+  try{
+    const r = await fetch('/api/state?request=1', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, contact, g, f, o, note })
+    });
+    if(r.ok){
+      msg.textContent = 'Request planted — the Grove team will reach out.';
+      ['reqName','reqContact','reqG','reqF','reqO','reqNote'].forEach(id=>document.getElementById(id).value='');
+      const j = await r.json(); if(j.requests) requests = j.requests;
+      render();
+    } else msg.textContent = 'Could not submit — try again in a minute.';
+  }catch(e){ msg.textContent = 'Could not reach the server — try again.'; }
+}
+async function delRequest(id){
+  try{
+    const r = await fetch('/api/state?reqdel='+id, { method:'POST', headers:{'x-host-pass': hostPass || ''} });
+    if(r.ok){ const j = await r.json(); if(j.requests) requests = j.requests; render(); }
+  }catch(e){}
+}
+async function removeEntry(i){ state.entries.splice(i,1); await save(); render(); }
+async function clearEntries(){ if(confirm('Clear all entries?')){ state.entries=[]; await save(); render(); } }
+function exportResults(){
+  const lines = ['spot,wallet,tier,pool,held,seed,timestamp',
+    ...state.spins.map(s=>`${s.spot},${s.winner},${s.tier||'FCFS'},${s.pool||(s.method==='team'?'Team':'')},${s.held??''},${s.seed},${new Date(s.ts).toISOString()}`)];
+  navigator.clipboard.writeText(lines.join('\n'));
+  notice('Results copied as CSV.');
+}
+async function setTitle(){
+  const t = document.getElementById('titleInput').value.trim();
+  if(t){ state.config.title = t; await save(); render(); }
+}
+
+/* ================= render ================= */
+function notice(m){ document.getElementById('wheelNotice').textContent = m; }
+function setTab(t){ tab=t; render(); }
+
+function render(){
+  document.getElementById('titleEl').innerHTML =
+    esc(state.config.title||'Bonsai Wheel').replace(/Wheel/i,'<span class="accent">Wheel</span>');
+  document.getElementById('statWallets').textContent = state.entries.length;
+  const topNow = topSet();
+  document.getElementById('statTickets').textContent = requests.length;
+  document.getElementById('statSpins').textContent = state.spins.length;
+
+  // legend: the two draw pools
+  const nxt = nextPool();
+  document.getElementById('legend').innerHTML =
+    `<span class="chip"><i style="background:#c9a15c"></i>Top 20 holders</span>
+     <span class="chip"><i style="background:#7fa876"></i>Community</span>
+     <span class="chip" style="border-color:var(--lantern)">Next draw: <b style="margin-left:4px">${esc(nxt.label)}</b></span>`;
+
+  // spin area
+  const sa = document.getElementById('spinArea');
+  sa.innerHTML = isHost
+    ? `<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+         <button class="spinbtn gold" onclick="doSpin('Guaranteed')" ${animating?'disabled':''}>Spin · Guaranteed</button>
+         <button class="spinbtn" onclick="doSpin('FCFS')" ${animating?'disabled':''}>Spin · FCFS</button>
+       </div>`
+    : `<div class="watchbadge"><span class="dot"></span>Watching live — the wheel spins for everyone when the host draws</div>`;
+
+  // tabs
+  document.getElementById('tabEntries').className = 'tab'+(tab==='entries'?' active':'');
+  document.getElementById('tabResults').className = 'tab'+(tab==='results'?' active':'');
+  const box = document.getElementById('tableBox');
+  if(tab==='entries'){
+    box.innerHTML = state.entries.length ? `<table>
+      <tr><th>Wallet</th><th>Held</th><th>Draw pool</th>${isHost?'<th></th>':''}</tr>
+      ${state.entries.map((e,i)=>{
+        const top15 = topNow.has(e.a.toLowerCase());
+        return `<tr>
+        <td class="mono" title="${esc(e.a)}">${esc(short(e.a))}</td>
+        <td style="color:#9aa58f">${e.n}</td>
+        <td><span class="tierchip ${top15?'tier-g':'tier-f'}">${top15?'★ Top 20':'Community'}</span></td>
+        ${isHost?`<td><button class="rowdel" onclick="removeEntry(${i})" title="Remove">×</button></td>`:''}
+      </tr>`}).join('')}</table>`
+      : `<div class="empty">No wallets on the wheel yet. Holders load automatically — give it a moment.</div>`;
+  } else {
+    box.innerHTML = state.spins.length ? `<table>
+      <tr><th>Spot</th><th>Wallet</th><th>Tier</th><th>Pool</th><th>Drawn</th></tr>
+      ${[...state.spins].reverse().map(s=>`<tr>
+        <td class="tickets">#${s.spot}</td>
+        <td class="mono" title="${esc(s.winner)}">${esc(short(s.winner))}</td>
+        <td><span class="tierchip ${(s.tier||'FCFS')==='Guaranteed'?'tier-g':'tier-f'}">${esc(s.tier||'FCFS')}</span></td>
+        <td><span class="tierchip ${s.pool==='Top 20'?'tier-g':'tier-f'}">${esc(s.pool||(s.method==='team'?'Team':'—'))}</span></td>
+        <td style="color:#9aa58f">${new Date(s.ts).toLocaleString()}</td>
+      </tr>`).join('')}</table>`
+      : `<div class="empty">No spots drawn yet. Winners appear here for everyone.</div>`;
+  }
+
+  // host card
+  const hb = document.getElementById('hostBody');
+  if(!isHost){
+    hb.innerHTML = `
+      <div class="hint">Enter the host passcode (set as <span class="mono">HOST_PASS</span> in Vercel) to manage entries and spin. Everyone else watches live automatically.</div>
+      <label>Host passcode</label>
+      <input type="password" id="passInput" placeholder="••••••">
+      <div class="hostactions"><button class="ghostbtn" onclick="claimHost()">Unlock host</button></div>`;
+  } else {
+    hb.innerHTML = `
+      <label>Giveaway title</label>
+      <div class="row2">
+        <input type="text" id="titleInput" value="${esc(state.config.title||'')}">
+        <button class="ghostbtn" onclick="setTitle()">Update title</button>
+      </div>
+
+      <label>Holders — pre-fed snapshot</label>
+      <div class="row2">
+        <button class="ghostbtn" id="loadBtn" onclick="loadHolders()">Refresh holder snapshot</button>
+        <span class="hint" id="holderProg" style="margin-top:8px">${state.config.snapshotTs
+          ? 'Snapshot saved '+new Date(state.config.snapshotTs).toLocaleString()+' — loads instantly for everyone. Refresh only if holders changed.'
+          : 'No snapshot yet — holders load automatically on first open, or press refresh.'}</span>
+      </div>
+
+      <label>Team wallets — guaranteed spots, no spin needed</label>
+      <textarea id="teamInput" style="min-height:60px" placeholder="0xteam1…&#10;0xteam2…"></textarea>
+      <div class="hostactions"><button class="ghostbtn" onclick="addTeam()">Reserve team spots</button></div>
+
+      <label>Collab requests from other communities</label>
+      ${requests.length ? `<div class="tablecap" style="max-height:200px"><table>
+        <tr><th>Community</th><th>Contact</th><th>G / FCFS / 1:1</th><th></th></tr>
+        ${requests.map(r=>`<tr>
+          <td>${esc(r.name)}${r.note?`<div class="hint" style="margin-top:2px">${esc(r.note)}</div>`:''}</td>
+          <td class="mono">${esc(r.contact)}</td>
+          <td class="tickets">${r.g} / ${r.f} / ${r.o}</td>
+          <td><button class="rowdel" onclick="delRequest(${r.id})" title="Remove">×</button></td>
+        </tr>`).join('')}</table></div>`
+      : `<div class="hint">No requests yet — communities can apply in the section below the wheel.</div>`}
+
+      <div class="hostactions">
+        <button class="ghostbtn" onclick="exportResults()">Copy results CSV</button>
+        <button class="dangerbtn" onclick="clearEntries()">Clear all entries</button>
+      </div>
+      <div class="hint">Draw model: spins alternate strictly — 1st, 3rd, 5th… spin picks a Top 20 holder, 2nd, 4th, 6th… picks from the rest of the community, equal odds inside each pool. So 10 spins always give top holders 5 spots. The "Next draw" chip under the wheel shows everyone which pool is up, each seed is logged, and past winners are skipped automatically.</div>`;
+  }
+
+  drawWheel(currentRotation);
+}
+
+/* ================= boot ================= */
+(async function(){
+  await load();
+  knownSpins = state.spins.length;
+  if(state.spins.length){
+    const lastRot = [...state.spins].reverse().find(s=>typeof s.rot==='number');
+    if(lastRot) currentRotation = lastRot.rot;
+  }
+  // restore host session if passcode saved this session
+  if(hostPass){
+    try{
+      const r = await fetch('/api/state?auth=1', { headers:{ 'x-host-pass': hostPass } });
+      isHost = r.ok;
+    }catch(e){}
+  }
+  render();
+  // Pre-fed by default: host's first visit takes the snapshot; it then lives on the
+  // server, so every visitor after that sees all holders instantly.
+  if(isHost && !state.entries.length && !animating){
+    notice('Loading all Bonsai holders onto the wheel…');
+    loadHolders();
+  }
+  pollTimer = setInterval(poll, 4000);
+})();
+</script>
+</body>
+</html>
