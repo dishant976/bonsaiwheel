@@ -4,6 +4,7 @@
 //   HOST_PASS  (your host passcode — only requests carrying it can write)
 const KEY = 'grove-wheel:v1';
 const REQ_KEY = 'grove-wheel:requests';
+const CHK_KEY = 'grove-wheel:checkins';
 const s80 = v => String(v ?? '').slice(0, 80);
 const n0 = v => Math.min(Math.max(parseInt(v, 10) || 0, 0), 10000);
 
@@ -24,6 +25,10 @@ export default async function handler(req, res) {
     const j = await cmd(['GET', REQ_KEY]);
     return j.result ? JSON.parse(j.result) : [];
   };
+  const getCheckins = async () => {
+    const j = await cmd(['GET', CHK_KEY]);
+    return j.result ? JSON.parse(j.result) : [];
+  };
 
   if (req.method === 'GET') {
     // ?auth=1 lets the client verify a host passcode without writing
@@ -36,10 +41,25 @@ export default async function handler(req, res) {
     return res.status(200).json({
       value: j.result ? JSON.parse(j.result) : null,
       requests: await getRequests(),
+      checkins: await getCheckins(),
     });
   }
 
   if (req.method === 'POST') {
+    // Public: a holder activates their entry (like + repost check-in)
+    if (req.query.checkin) {
+      const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      const a = String(b.a || '').toLowerCase();
+      const h = s80(b.h).replace(/^@/, '').replace(/[^a-zA-Z0-9_]/g, '');
+      if (!/^0x[a-f0-9]{40}$/.test(a) || !h) return res.status(400).json({ error: 'Invalid wallet or handle' });
+      const list = await getCheckins();
+      if (list.length >= 5000) return res.status(429).json({ error: 'Check-in list full' });
+      const ex = list.find((c) => c.a === a);
+      if (ex) { ex.h = h; ex.ts = Date.now(); }
+      else list.push({ a, h, ts: Date.now() });
+      await cmd(['SET', CHK_KEY, JSON.stringify(list)]);
+      return res.status(200).json({ ok: true, checkins: list });
+    }
     // Public: a community submits a collab request (no passcode needed)
     if (req.query.request) {
       const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
@@ -53,6 +73,23 @@ export default async function handler(req, res) {
       if (list.length >= 200) return res.status(429).json({ error: 'Request queue full' });
       list.push(entry);
       await cmd(['SET', REQ_KEY, JSON.stringify(list)]);
+      // Optional: ping Discord so the team knows instantly
+      if (process.env.DISCORD_WEBHOOK_URL) {
+        try {
+          await fetch(process.env.DISCORD_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content:
+                `🌱 **New collab request on the Bonsai Wheel**\n` +
+                `**Community:** ${entry.name}\n` +
+                `**Contact:** ${entry.contact}\n` +
+                `**Spots offered:** ${entry.g} Guaranteed · ${entry.f} FCFS · ${entry.o} 1:1` +
+                (entry.note ? `\n**Note:** ${entry.note}` : ''),
+            }),
+          });
+        } catch (e) { /* notification failure shouldn't block the request */ }
+      }
       return res.status(200).json({ ok: true, requests: list });
     }
 
@@ -66,6 +103,12 @@ export default async function handler(req, res) {
       const list = (await getRequests()).filter((r) => r.id !== id);
       await cmd(['SET', REQ_KEY, JSON.stringify(list)]);
       return res.status(200).json({ ok: true, requests: list });
+    }
+
+    // Host clears all check-ins (fresh gate for the next giveaway)
+    if (req.query.chkclear) {
+      await cmd(['SET', CHK_KEY, '[]']);
+      return res.status(200).json({ ok: true, checkins: [] });
     }
 
     // Host saves wheel state
