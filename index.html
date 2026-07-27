@@ -164,6 +164,17 @@ footer{margin-top:34px;text-align:center;font-size:12px;color:#5d6b56}
     </div>
   </div>
 
+  <div class="card" style="margin-top:26px;display:none" id="engageCard">
+    <h2>Activate your entry</h2>
+    <div class="hint" style="margin-top:0" id="engageIntro"></div>
+    <div class="row2">
+      <div><label>Your holder wallet</label><input type="text" id="chkWallet" placeholder="0x…"></div>
+      <div><label>Your X handle</label><input type="text" id="chkHandle" placeholder="@yourname"></div>
+    </div>
+    <div class="hostactions"><button class="ghostbtn" onclick="submitCheckin()">Activate my entry</button></div>
+    <div class="notice" id="chkMsg" aria-live="polite"></div>
+  </div>
+
   <div class="card" style="margin-top:26px" id="collabCard">
     <h2>Collab with the Grove</h2>
     <div class="hint" style="margin-top:0">Running a community and want to give spots to On-Chain Bonsai holders? Tell us how many Guaranteed, FCFS, and 1:1 spots you're offering — we'll run the draw on this wheel and your team watches live.</div>
@@ -228,6 +239,7 @@ async function load(){
     const j = await r.json();
     if(j && j.value) state = j.value;
     if(j && Array.isArray(j.requests)) requests = j.requests;
+    if(j && Array.isArray(j.checkins)) checkins = j.checkins;
   }catch(e){ /* first load or offline */ }
 }
 async function save(){
@@ -254,11 +266,19 @@ function topSet(){
     .slice().sort((a,b)=>b.n-a.n).slice(0,TOP_N)
     .map(e=>e.a.toLowerCase()));
 }
+/* Winners of archived rounds stay on the wheel with HALF a ticket. */
+function pastWinners(){
+  const s = new Set();
+  (state.history||[]).forEach(r=>r.spins.forEach(x=>s.add(String(x.winner).toLowerCase())));
+  return s;
+}
+function drawWeight(e, past){ return past.has(e.a.toLowerCase()) ? 0.5 : 1; }
 function spunCount(){ return state.spins.filter(s=>s.method!=='team').length; }
 function nextPool(){
-  const won = wonSet(), top = topSet();
-  const topPool  = state.entries.filter(e=> top.has(e.a.toLowerCase()) && !won.has(e.a.toLowerCase()));
-  const openPool = state.entries.filter(e=>!top.has(e.a.toLowerCase()) && !won.has(e.a.toLowerCase()));
+  const won = wonSet(), top = topSet(), act = activeSet();
+  const ok = e => !won.has(e.a.toLowerCase()) && (!act || act.has(e.a.toLowerCase()));
+  const topPool  = state.entries.filter(e=> top.has(e.a.toLowerCase()) && ok(e));
+  const openPool = state.entries.filter(e=>!top.has(e.a.toLowerCase()) && ok(e));
   const topTurn = spunCount() % 2 === 0;
   if(topTurn  && topPool.length)  return { pool: topPool,  label:'Top 20' };
   if(openPool.length)             return { pool: openPool, label:'Community' };
@@ -266,12 +286,15 @@ function nextPool(){
   return { pool: [], label:'—' };
 }
 function segments(){
-  const top = topSet();
-  const total = state.entries.length;
+  const top = topSet(), past = pastWinners(), act = activeSet();
+  const total = state.entries.reduce((s,e)=>s+drawWeight(e,past),0);
   let start = -Math.PI/2;
   return state.entries.map(e=>{
-    const frac = total ? 1/total : 0;
-    const seg = { ...e, top: top.has(e.a.toLowerCase()), a0:start, a1:start + frac*2*Math.PI };
+    const w = drawWeight(e,past);
+    const frac = total ? w/total : 0;
+    const seg = { ...e, top: top.has(e.a.toLowerCase()), past: w<1,
+                  inactive: act ? !act.has(e.a.toLowerCase()) : false,
+                  a0:start, a1:start + frac*2*Math.PI };
     start = seg.a1;
     return seg;
   });
@@ -295,7 +318,7 @@ function drawWheel(rot){
   segs.forEach(s=>{
     ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,s.a0,s.a1); ctx.closePath();
     ctx.fillStyle = s.top ? '#c9a15c' : '#7fa876';
-    ctx.globalAlpha = won.has(s.a.toLowerCase()) ? .28 : .88; ctx.fill(); ctx.globalAlpha=1;
+    ctx.globalAlpha = won.has(s.a.toLowerCase()) ? .28 : (s.inactive ? .12 : (s.past ? .55 : .88)); ctx.fill(); ctx.globalAlpha=1;
     ctx.strokeStyle='#0f1a13'; ctx.lineWidth=2; ctx.stroke();
     const span = s.a1-s.a0;
     if(span > 0.09){
@@ -324,9 +347,13 @@ function drawWheel(rot){
 function wonSet(){ return new Set(state.spins.map(s=>String(s.winner).toLowerCase())); }
 function eligible(){ const w = wonSet(); return state.entries.filter(e=>!w.has(e.a.toLowerCase())); }
 function pickWinner(seed, pool){
+  const past = pastWinners();
   const rng = sfc32(seed, seed^0x9e3779b9, seed^0x85ebca6b, seed^0xc2b2ae35);
   for(let i=0;i<12;i++) rng();
-  return pool[Math.floor(rng()*pool.length)];
+  const total = pool.reduce((s,e)=>s+drawWeight(e,past),0);
+  let t = rng()*total;
+  for(const e of pool){ t -= drawWeight(e,past); if(t<=0) return e; }
+  return pool[pool.length-1];
 }
 function rotationFor(entry){
   const seg = segments().find(s=>s.a===entry.a && s.c===entry.c);
@@ -358,6 +385,7 @@ async function doSpin(tier){
   const winner = pickWinner(seed, pool);
   const finalRot = rotationFor(winner);
   const spin = { winner: winner.a, community: winner.c||'Bonsai', pool: label,
+                 handle: handleFor(winner.a) || undefined,
                  held: winner.n, seed, ts: Date.now(), spot: state.spins.length+1, tier: tier||'FCFS',
                  rot: finalRot % (2*Math.PI) };
   state.spins.push(spin);
@@ -370,7 +398,7 @@ async function doSpin(tier){
 function showWinner(spin){
   document.getElementById('winTitle').textContent =
     `Spot #${spin.spot} · ${spin.tier||'FCFS'}${spin.pool ? ' · '+spin.pool+' draw' : (spin.method==='team' ? ' · Team' : '')}`;
-  document.getElementById('winAddr').textContent = spin.winner;
+  document.getElementById('winAddr').textContent = spin.winner + (spin.handle ? '  ·  @'+spin.handle : '');
   document.getElementById('winMeta').textContent =
     `${spin.held!=null ? spin.held+' bonsai held · ' : ''}seed ${spin.seed} · ${new Date(spin.ts).toLocaleString()}`;
   document.getElementById('overlay').classList.add('show');
@@ -380,7 +408,7 @@ function closeOverlay(){ document.getElementById('overlay').classList.remove('sh
 /* ================= live watching ================= */
 async function poll(){
   if(animating) return;
-  const before = JSON.stringify(state.entries) + '|' + requests.length;
+  const before = JSON.stringify(state.entries) + '|' + requests.length + '|' + checkins.length;
   const prevSpins = knownSpins;
   await load();
   if(state.spins.length > prevSpins){
@@ -393,7 +421,7 @@ async function poll(){
         ((spin.rot - (currentRotation % (2*Math.PI))) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
       animateTo(finalRot, ()=>{ hideDim = null; drawWheel(currentRotation); showWinner(spin); });
     }
-  } else if ((JSON.stringify(state.entries) + '|' + requests.length) !== before || state.spins.length !== prevSpins){
+  } else if ((JSON.stringify(state.entries) + '|' + requests.length + '|' + checkins.length) !== before || state.spins.length !== prevSpins){
     knownSpins = state.spins.length;
     render();
   }
@@ -480,6 +508,55 @@ async function claimHost(){
   }catch(e){ notice('Could not reach the server — try again.'); return; }
   render();
 }
+/* ================= X engagement gate ================= */
+let checkins = []; // [{a, h, ts}] — wallets that liked+reposted and activated
+function engageOn(){ return !!(state.config.engage && state.config.engage.on); }
+function activeSet(){
+  if(!engageOn()) return null; // gate off → everyone active
+  return new Set(checkins.map(c=>c.a.toLowerCase()));
+}
+function handleFor(addr){
+  const c = checkins.find(c=>c.a.toLowerCase()===String(addr).toLowerCase());
+  return c ? c.h : null;
+}
+async function submitCheckin(){
+  const msg = document.getElementById('chkMsg');
+  const a = document.getElementById('chkWallet').value.trim();
+  const h = document.getElementById('chkHandle').value.trim().replace(/^@/,'');
+  if(!/^0x[a-fA-F0-9]{40}$/.test(a)){ msg.textContent = 'That does not look like a wallet address.'; return; }
+  if(!h){ msg.textContent = 'Add your X handle so we can verify your repost.'; return; }
+  if(!state.entries.some(e=>e.a.toLowerCase()===a.toLowerCase())){
+    msg.textContent = 'This wallet is not in the holder snapshot — only On-Chain Bonsai holders can enter.'; return;
+  }
+  try{
+    const r = await fetch('/api/state?checkin=1', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ a, h })
+    });
+    if(r.ok){
+      const j = await r.json(); if(j.checkins) checkins = j.checkins;
+      msg.textContent = 'Entry activated — your slice is live on the wheel. 🌱';
+      document.getElementById('chkWallet').value=''; document.getElementById('chkHandle').value='';
+      render();
+    } else msg.textContent = 'Could not activate — try again in a minute.';
+  }catch(e){ msg.textContent = 'Could not reach the server — try again.'; }
+}
+async function toggleEngage(){
+  const url = document.getElementById('engageUrl').value.trim();
+  const turningOn = !engageOn();
+  if(turningOn && !url){ notice('Paste the giveaway post URL first.'); return; }
+  state.config.engage = { on: turningOn, url };
+  await save(); render();
+  notice(turningOn ? 'Engagement gate ON — only activated wallets can win.' : 'Engagement gate OFF — all holders eligible.');
+}
+async function clearCheckins(){
+  if(!confirm('Clear all check-ins? Holders will need to activate again for the next giveaway.')) return;
+  try{
+    const r = await fetch('/api/state?chkclear=1', { method:'POST', headers:{'x-host-pass': hostPass || ''} });
+    if(r.ok){ checkins = []; render(); notice('Check-ins cleared.'); }
+  }catch(e){}
+}
+
 /* ================= collab requests (public form) ================= */
 let requests = [];
 async function submitRequest(){
@@ -513,11 +590,26 @@ async function delRequest(id){
 }
 async function removeEntry(i){ state.entries.splice(i,1); await save(); render(); }
 async function clearEntries(){ if(confirm('Clear all entries?')){ state.entries=[]; await save(); render(); } }
+async function newGiveaway(){
+  if(!state.spins.length){ notice('No winners in this round yet — nothing to archive.'); return; }
+  if(!confirm('End this giveaway and start a fresh round? Winners will be archived and stay on the wheel with half chances.')) return;
+  state.history = state.history || [];
+  state.history.push({ round: state.history.length + 1, endedTs: Date.now(), spins: state.spins });
+  state.spins = [];
+  knownSpins = 0;
+  await save();
+  render();
+  notice('Round ' + state.history.length + ' archived — new giveaway started.');
+}
 function exportResults(){
-  const lines = ['spot,wallet,tier,pool,held,seed,timestamp',
-    ...state.spins.map(s=>`${s.spot},${s.winner},${s.tier||'FCFS'},${s.pool||(s.method==='team'?'Team':'')},${s.held??''},${s.seed},${new Date(s.ts).toISOString()}`)];
+  const rows = [];
+  (state.history||[]).forEach(r=>r.spins.forEach(s=>rows.push([r.round,s])));
+  const cur = (state.history||[]).length + 1;
+  state.spins.forEach(s=>rows.push([cur,s]));
+  const lines = ['round,spot,wallet,handle,tier,pool,held,seed,timestamp',
+    ...rows.map(([rd,s])=>`${rd},${s.spot},${s.winner},${s.handle||''},${s.tier||'FCFS'},${s.pool||(s.method==='team'?'Team':'')},${s.held??''},${s.seed},${new Date(s.ts).toISOString()}`)];
   navigator.clipboard.writeText(lines.join('\n'));
-  notice('Results copied as CSV.');
+  notice('Results copied as CSV — all rounds.');
 }
 async function setTitle(){
   const t = document.getElementById('titleInput').value.trim();
@@ -538,10 +630,23 @@ function render(){
 
   // legend: the two draw pools
   const nxt = nextPool();
+  const pastN = pastWinners().size;
+  const act = activeSet();
   document.getElementById('legend').innerHTML =
     `<span class="chip"><i style="background:#c9a15c"></i>Top 20 holders</span>
      <span class="chip"><i style="background:#7fa876"></i>Community</span>
+     ${pastN ? `<span class="chip"><i style="background:#7fa876;opacity:.5"></i>Past winners · ½ chance (${pastN})</span>` : ''}
+     ${act ? `<span class="chip" style="border-color:var(--moss)">Activated: <b style="margin:0 4px">${[...act].filter(a=>state.entries.some(e=>e.a.toLowerCase()===a)).length}</b> / ${state.entries.length}</span>` : ''}
      <span class="chip" style="border-color:var(--lantern)">Next draw: <b style="margin-left:4px">${esc(nxt.label)}</b></span>`;
+
+  // engagement gate card
+  const ec = document.getElementById('engageCard');
+  ec.style.display = engageOn() ? '' : 'none';
+  if(engageOn()){
+    const u = state.config.engage.url || '#';
+    document.getElementById('engageIntro').innerHTML =
+      `This giveaway requires X engagement. <b>Step 1:</b> like &amp; repost <a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--lantern)">the giveaway post</a>. <b>Step 2:</b> activate your holder wallet below. Only activated wallets can win — reposts are verified before spots are delivered.`;
+  }
 
   // spin area
   const sa = document.getElementById('spinArea');
@@ -557,28 +662,43 @@ function render(){
   document.getElementById('tabResults').className = 'tab'+(tab==='results'?' active':'');
   const box = document.getElementById('tableBox');
   if(tab==='entries'){
+    const pastSet = pastWinners();
+    const actSet = activeSet();
     box.innerHTML = state.entries.length ? `<table>
-      <tr><th>Wallet</th><th>Held</th><th>Draw pool</th>${isHost?'<th></th>':''}</tr>
+      <tr><th>Wallet</th><th>Held</th><th>Draw pool</th>${actSet?'<th>Status</th>':''}${isHost?'<th></th>':''}</tr>
       ${state.entries.map((e,i)=>{
-        const top15 = topNow.has(e.a.toLowerCase());
-        return `<tr>
+        const top20 = topNow.has(e.a.toLowerCase());
+        const half = pastSet.has(e.a.toLowerCase());
+        const active = actSet ? actSet.has(e.a.toLowerCase()) : true;
+        return `<tr${actSet && !active ? ' style="opacity:.45"' : ''}>
         <td class="mono" title="${esc(e.a)}">${esc(short(e.a))}</td>
         <td style="color:#9aa58f">${e.n}</td>
-        <td><span class="tierchip ${top15?'tier-g':'tier-f'}">${top15?'★ Top 20':'Community'}</span></td>
+        <td><span class="tierchip ${top20?'tier-g':'tier-f'}">${top20?'★ Top 20':'Community'}</span>${half?' <span class="tierchip tier-f" style="opacity:.7" title="Won a previous round">½</span>':''}</td>
+        ${actSet?`<td>${active?'<span class="tierchip tier-f">Active</span>':'<span class="hint">like + repost to activate</span>'}</td>`:''}
         ${isHost?`<td><button class="rowdel" onclick="removeEntry(${i})" title="Remove">×</button></td>`:''}
       </tr>`}).join('')}</table>`
       : `<div class="empty">No wallets on the wheel yet. Holders load automatically — give it a moment.</div>`;
   } else {
-    box.innerHTML = state.spins.length ? `<table>
-      <tr><th>Spot</th><th>Wallet</th><th>Tier</th><th>Pool</th><th>Drawn</th></tr>
-      ${[...state.spins].reverse().map(s=>`<tr>
+    const roundNo = (state.history||[]).length + 1;
+    const spinRows = list => [...list].reverse().map(s=>`<tr>
         <td class="tickets">#${s.spot}</td>
         <td class="mono" title="${esc(s.winner)}">${esc(short(s.winner))}</td>
         <td><span class="tierchip ${(s.tier||'FCFS')==='Guaranteed'?'tier-g':'tier-f'}">${esc(s.tier||'FCFS')}</span></td>
         <td><span class="tierchip ${s.pool==='Top 20'?'tier-g':'tier-f'}">${esc(s.pool||(s.method==='team'?'Team':'—'))}</span></td>
         <td style="color:#9aa58f">${new Date(s.ts).toLocaleString()}</td>
-      </tr>`).join('')}</table>`
-      : `<div class="empty">No spots drawn yet. Winners appear here for everyone.</div>`;
+      </tr>`).join('');
+    const head = '<tr><th>Spot</th><th>Wallet</th><th>Tier</th><th>Pool</th><th>Drawn</th></tr>';
+    const roundHead = t => `<tr><th colspan="5" style="background:var(--ink);color:var(--lantern);letter-spacing:.1em">${t}</th></tr>`;
+    let html = '';
+    if(state.spins.length || (state.history||[]).length){
+      html = '<table>' + head;
+      html += roundHead(`Round ${roundNo} — current`) + (state.spins.length ? spinRows(state.spins) : '<tr><td colspan="5" style="color:#6c7a64">No spots drawn yet this round.</td></tr>');
+      [...(state.history||[])].reverse().forEach(r=>{
+        html += roundHead(`Round ${r.round} — ended ${new Date(r.endedTs).toLocaleDateString()}`) + spinRows(r.spins);
+      });
+      html += '</table>';
+    }
+    box.innerHTML = html || `<div class="empty">No spots drawn yet. Winners appear here for everyone.</div>`;
   }
 
   // host card
@@ -620,11 +740,22 @@ function render(){
         </tr>`).join('')}</table></div>`
       : `<div class="hint">No requests yet — communities can apply in the section below the wheel.</div>`}
 
+      <label>X engagement gate — like + repost to enter</label>
+      <div class="row2">
+        <input type="text" id="engageUrl" placeholder="https://x.com/…/status/…" value="${esc((state.config.engage&&state.config.engage.url)||'')}">
+        <button class="ghostbtn" onclick="toggleEngage()">${engageOn()?'Disable gate':'Enable gate'}</button>
+      </div>
+      <div class="hint">${engageOn()
+        ? checkins.length + ' wallet' + (checkins.length===1?'':'s') + ' activated. Only they can win. Spot-check winner reposts via their handles before delivering.'
+        : 'Off — all holders eligible. Paste the giveaway post URL and enable to require like + repost.'}</div>
+      ${engageOn() ? `<div class="hostactions"><button class="ghostbtn" onclick="clearCheckins()">Clear check-ins</button></div>` : ''}
+
       <div class="hostactions">
+        <button class="ghostbtn" onclick="newGiveaway()">End giveaway · start new round</button>
         <button class="ghostbtn" onclick="exportResults()">Copy results CSV</button>
         <button class="dangerbtn" onclick="clearEntries()">Clear all entries</button>
       </div>
-      <div class="hint">Draw model: spins alternate strictly — 1st, 3rd, 5th… spin picks a Top 20 holder, 2nd, 4th, 6th… picks from the rest of the community, equal odds inside each pool. So 10 spins always give top holders 5 spots. The "Next draw" chip under the wheel shows everyone which pool is up, each seed is logged, and past winners are skipped automatically.</div>`;
+      <div class="hint">Draw model: spins alternate strictly — 1st, 3rd, 5th… spin picks a Top 20 holder, 2nd, 4th, 6th… picks from the rest of the community. Inside each pool every wallet has an equal chance, except winners of past rounds who carry ½ a ticket (their wheel slices are half-width and faded). Within a round nobody wins twice. Ending a giveaway archives its winners as a round and resets the wheel for the next one.</div>`;
   }
 
   drawWheel(currentRotation);
