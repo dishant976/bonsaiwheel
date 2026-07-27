@@ -267,13 +267,18 @@ function topSet(){
     .slice().sort((a,b)=>b.n-a.n).slice(0,TOP_N)
     .map(e=>e.a.toLowerCase()));
 }
-/* Winners of archived rounds stay on the wheel with HALF a ticket. */
+/* Holder-biased odds: inside each pool, a wallet's chance is proportional to
+   how many bonsai it holds — every bonsai is a ticket. Winners of archived
+   rounds carry half weight. */
 function pastWinners(){
   const s = new Set();
   (state.history||[]).forEach(r=>r.spins.forEach(x=>s.add(String(x.winner).toLowerCase())));
   return s;
 }
-function drawWeight(e, past){ return past.has(e.a.toLowerCase()) ? 0.5 : 1; }
+function drawWeight(e, past){
+  const base = Math.max(1, e.n || 1);
+  return past.has(e.a.toLowerCase()) ? base * 0.5 : base;
+}
 function spunCount(){ return state.spins.filter(s=>s.method!=='team').length; }
 function nextPool(){
   const won = wonSet(), top = topSet(), act = activeSet();
@@ -646,7 +651,8 @@ function render(){
   document.getElementById('legend').innerHTML =
     `<span class="chip"><i style="background:#c9a15c"></i>Top 20 holders</span>
      <span class="chip"><i style="background:#7fa876"></i>Community</span>
-     ${pastN ? `<span class="chip"><i style="background:#7fa876;opacity:.5"></i>Past winners · ½ chance (${pastN})</span>` : ''}
+     <span class="chip">Odds ∝ bonsai held</span>
+     ${pastN ? `<span class="chip"><i style="background:#7fa876;opacity:.5"></i>Past winners · ½ weight (${pastN})</span>` : ''}
      ${act ? `<span class="chip" style="border-color:var(--moss)">Activated: <b style="margin:0 4px">${[...act].filter(a=>state.entries.some(e=>e.a.toLowerCase()===a)).length}</b> / ${state.entries.length}</span>` : ''}
      <span class="chip" style="border-color:var(--lantern)">Next draw: <b style="margin-left:4px">${esc(nxt.label)}</b></span>`;
 
@@ -772,7 +778,7 @@ function render(){
         <button class="ghostbtn" onclick="exportResults()">Copy results CSV</button>
         <button class="dangerbtn" onclick="clearEntries()">Clear all entries</button>
       </div>
-      <div class="hint">Draw model: spins alternate strictly — 1st, 3rd, 5th… spin picks a Top 20 holder, 2nd, 4th, 6th… picks from the rest of the community. Inside each pool every wallet has an equal chance, except winners of past rounds who carry ½ a ticket (their wheel slices are half-width and faded). Within a round nobody wins twice. Ending a giveaway archives its winners as a round and resets the wheel for the next one.</div>`;
+      <div class="hint">Draw model: spins alternate strictly — 1st, 3rd, 5th… spin picks a Top 20 holder, 2nd, 4th, 6th… picks from the rest of the community. Inside each pool, chances are proportional to bonsai held — every bonsai is a ticket, so a 10-bonsai wallet has 10× the chance of a 1-bonsai wallet. Past-round winners carry ½ weight. Within a round nobody wins twice. Slices on the wheel match true odds, every seed is logged, and ending a giveaway archives its winners as a round.</div>`;
   }
 
   drawWheel(currentRotation);
