@@ -5,7 +5,7 @@
 //   DISCORD_WEBHOOK_URL  (optional — pings Discord on new collab requests)
 const KEY = 'grove-wheel:v1';
 const REQ_KEY = 'grove-wheel:requests';
-const CHK_KEY = 'grove-wheel:checkins';
+const CHK_KEY = 'grove-wheel:chk-hash'; // hash: wallet → {h, ts}; atomic per wallet
 
 const s80 = (v) => String(v == null ? '' : v).slice(0, 80);
 const n0 = (v) => Math.min(Math.max(parseInt(v, 10) || 0, 0), 10000);
@@ -15,8 +15,10 @@ const safeParse = (v, fallback) => {
 
 module.exports = async function handler(req, res) {
   try {
-    const url = process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    // Tolerate accidentally-quoted env values (e.g. pasted from a .env file)
+    const clean = (v) => String(v || '').trim().replace(/^["']+|["']+$/g, '');
+    const url = clean(process.env.UPSTASH_REDIS_REST_URL);
+    const token = clean(process.env.UPSTASH_REDIS_REST_TOKEN);
     if (!url || !token) return res.status(500).json({ error: 'Storage not configured' });
 
     const cmd = async (arr) => {
@@ -31,6 +33,17 @@ module.exports = async function handler(req, res) {
       const j = await cmd(['GET', k]);
       return safeParse(j && j.result, fallback);
     };
+    // Check-ins live in a hash: HGETALL → [field, value, field, value, ...]
+    const getCheckins = async () => {
+      const j = await cmd(['HGETALL', CHK_KEY]);
+      const arr = j && Array.isArray(j.result) ? j.result : [];
+      const list = [];
+      for (let i = 0; i + 1 < arr.length; i += 2) {
+        const meta = safeParse(arr[i + 1], {});
+        list.push({ a: arr[i], h: meta.h || '', ts: meta.ts || 0 });
+      }
+      return list;
+    };
 
     if (req.method === 'GET') {
       // ?auth=1 → verify host passcode without writing
@@ -42,7 +55,7 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({
         value: await getKey(KEY, null),
         requests: await getKey(REQ_KEY, []),
-        checkins: await getKey(CHK_KEY, []),
+        checkins: await getCheckins(),
       });
     }
 
@@ -55,12 +68,11 @@ module.exports = async function handler(req, res) {
         const a = String(b.a || '').toLowerCase();
         const h = s80(b.h).replace(/^@/, '').replace(/[^a-zA-Z0-9_]/g, '');
         if (!/^0x[a-f0-9]{40}$/.test(a) || !h) return res.status(400).json({ error: 'Invalid wallet or handle' });
-        const list = await getKey(CHK_KEY, []);
-        if (list.length >= 5000) return res.status(429).json({ error: 'Check-in list full' });
-        const ex = list.find((c) => c.a === a);
-        if (ex) { ex.h = h; ex.ts = Date.now(); }
-        else list.push({ a, h, ts: Date.now() });
-        await cmd(['SET', CHK_KEY, JSON.stringify(list)]);
+        const lenJ = await cmd(['HLEN', CHK_KEY]);
+        if ((lenJ && lenJ.result || 0) >= 5000) return res.status(429).json({ error: 'Check-in list full' });
+        // HSET is atomic per wallet — concurrent activations can never wipe each other
+        await cmd(['HSET', CHK_KEY, a, JSON.stringify({ h, ts: Date.now() })]);
+        const list = await getCheckins();
         return res.status(200).json({ ok: true, checkins: list });
       }
 
@@ -110,7 +122,7 @@ module.exports = async function handler(req, res) {
 
       // Host clears all check-ins
       if (q.chkclear) {
-        await cmd(['SET', CHK_KEY, '[]']);
+        await cmd(['DEL', CHK_KEY]);
         return res.status(200).json({ ok: true, checkins: [] });
       }
 
