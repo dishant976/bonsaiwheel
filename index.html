@@ -241,6 +241,7 @@ async function load(){
     if(j && j.value) state = j.value;
     if(j && Array.isArray(j.requests)) requests = j.requests;
     if(j && Array.isArray(j.checkins)) checkins = j.checkins;
+    mergeLocalActs();
   }catch(e){ /* first load or offline */ }
 }
 async function save(){
@@ -521,6 +522,10 @@ async function claimHost(){
 }
 /* ================= X engagement gate ================= */
 let checkins = []; // [{a, h, ts}] — wallets that liked+reposted and activated
+let localActs = []; // activations made in this session — shield against replica read lag
+function mergeLocalActs(){
+  localActs.forEach(c=>{ if(!checkins.some(x=>x.a.toLowerCase()===c.a.toLowerCase())) checkins.push(c); });
+}
 function engageOn(){ return !!(state.config.engage && state.config.engage.on); }
 function activeSet(){
   if(!engageOn()) return null; // gate off → everyone active
@@ -546,6 +551,8 @@ async function submitCheckin(){
     });
     if(r.ok){
       const j = await r.json(); if(j.checkins) checkins = j.checkins;
+      localActs.push({ a: a.toLowerCase(), h, ts: Date.now() });
+      mergeLocalActs();
       sessionStorage.setItem('grove-my-wallet', a.toLowerCase());
       msg.textContent = 'Entry activated ✓ — ' + checkins.length + ' wallet' + (checkins.length===1?'':'s') + ' activated so far.';
       document.getElementById('chkWallet').value=''; document.getElementById('chkHandle').value='';
