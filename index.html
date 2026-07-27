@@ -615,7 +615,7 @@ async function removeEntry(i){ state.entries.splice(i,1); await save(); render()
 async function clearEntries(){ if(confirm('Clear all entries?')){ state.entries=[]; await save(); render(); } }
 async function newGiveaway(){
   if(!state.spins.length){ notice('No winners in this round yet — nothing to archive.'); return; }
-  if(!confirm('End this giveaway and start a fresh round? Winners will be archived and stay on the wheel with half chances.')) return;
+  if(!confirm('End this giveaway and start a fresh round? Winners will be archived and stay on the wheel with half weight.')) return;
   state.history = state.history || [];
   state.history.push({ round: state.history.length + 1, endedTs: Date.now(), spins: state.spins });
   state.spins = [];
@@ -623,6 +623,17 @@ async function newGiveaway(){
   await save();
   render();
   notice('Round ' + state.history.length + ' archived — new giveaway started.');
+}
+async function fullReset(){
+  if(!confirm('FULL RESET: wipe ALL winners, ALL past rounds, and ALL check-ins? The holder snapshot, title, and gate settings are kept. This cannot be undone.')) return;
+  state.spins = [];
+  state.history = [];
+  knownSpins = 0;
+  currentRotation = 0;
+  await save();
+  try{ await fetch('/api/state?chkclear=1', { method:'POST', headers:{'x-host-pass': hostPass || ''} }); checkins = []; localActs = []; }catch(e){}
+  render();
+  notice('Fresh wheel — no winners, no rounds, no check-ins. Ready for the real giveaway.');
 }
 function exportResults(){
   const rows = [];
@@ -783,6 +794,7 @@ function render(){
       <div class="hostactions">
         <button class="ghostbtn" onclick="newGiveaway()">End giveaway · start new round</button>
         <button class="ghostbtn" onclick="exportResults()">Copy results CSV</button>
+        <button class="dangerbtn" onclick="fullReset()">Full reset — wipe winners &amp; rounds</button>
         <button class="dangerbtn" onclick="clearEntries()">Clear all entries</button>
       </div>
       <div class="hint">Draw model: spins alternate strictly — 1st, 3rd, 5th… spin picks a Top 20 holder, 2nd, 4th, 6th… picks from the rest of the community. Inside each pool, chances are proportional to bonsai held — every bonsai is a ticket, so a 10-bonsai wallet has 10× the chance of a 1-bonsai wallet. Past-round winners carry ½ weight. Within a round nobody wins twice. Slices on the wheel match true odds, every seed is logged, and ending a giveaway archives its winners as a round.</div>`;
