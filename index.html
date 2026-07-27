@@ -154,6 +154,7 @@ footer{margin-top:34px;text-align:center;font-size:12px;color:#5d6b56}
           <button class="tab active" id="tabEntries" onclick="setTab('entries')">Entries</button>
           <button class="tab" id="tabResults" onclick="setTab('results')">Winners</button>
         </div>
+        <input type="text" id="searchBox" placeholder="Search your wallet — paste 0x…" oninput="render()" style="margin-bottom:12px">
         <div class="tablecap" id="tableBox"></div>
       </div>
 
@@ -380,7 +381,12 @@ function animateTo(finalRot, done){
 async function doSpin(tier){
   if(animating) return;
   const { pool, label } = nextPool();
-  if(!pool.length){ notice('No eligible wallets left — everyone on the wheel has already won.'); return; }
+  if(!pool.length){
+    notice(engageOn() && (!activeSet() || activeSet().size===0)
+      ? 'Engagement gate is on but no wallets have activated yet — nothing to draw from.'
+      : 'No eligible wallets left — everyone on the wheel has already won.');
+    return;
+  }
   const seed = Date.now() >>> 0;
   const winner = pickWinner(seed, pool);
   const finalRot = rotationFor(winner);
@@ -535,10 +541,15 @@ async function submitCheckin(){
     });
     if(r.ok){
       const j = await r.json(); if(j.checkins) checkins = j.checkins;
-      msg.textContent = 'Entry activated — your slice is live on the wheel. 🌱';
+      sessionStorage.setItem('grove-my-wallet', a.toLowerCase());
+      msg.textContent = 'Entry activated ✓ — ' + checkins.length + ' wallet' + (checkins.length===1?'':'s') + ' activated so far.';
       document.getElementById('chkWallet').value=''; document.getElementById('chkHandle').value='';
       render();
-    } else msg.textContent = 'Could not activate — try again in a minute.';
+    } else {
+      let detail = '';
+      try{ const j = await r.json(); detail = j.error || ''; }catch(e){}
+      msg.textContent = 'Could not activate' + (detail ? ' — server says: ' + detail : ' — try again in a minute.');
+    }
   }catch(e){ msg.textContent = 'Could not reach the server — try again.'; }
 }
 async function toggleEngage(){
@@ -644,8 +655,11 @@ function render(){
   ec.style.display = engageOn() ? '' : 'none';
   if(engageOn()){
     const u = state.config.engage.url || '#';
+    const mine = sessionStorage.getItem('grove-my-wallet');
+    const mineActive = mine && checkins.some(c=>c.a.toLowerCase()===mine);
     document.getElementById('engageIntro').innerHTML =
-      `This giveaway requires X engagement. <b>Step 1:</b> like &amp; repost <a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--lantern)">the giveaway post</a>. <b>Step 2:</b> activate your holder wallet below. Only activated wallets can win — reposts are verified before spots are delivered.`;
+      `This giveaway requires X engagement. <b>Step 1:</b> like &amp; repost <a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--lantern)">the giveaway post</a>. <b>Step 2:</b> activate your holder wallet below. Only activated wallets can win — reposts are verified before spots are delivered.` +
+      (mineActive ? `<div style="margin-top:10px"><span class="tierchip tier-f">✓ Your wallet ${esc(short(mine))} is Active</span></div>` : '');
   }
 
   // spin area
@@ -661,12 +675,15 @@ function render(){
   document.getElementById('tabEntries').className = 'tab'+(tab==='entries'?' active':'');
   document.getElementById('tabResults').className = 'tab'+(tab==='results'?' active':'');
   const box = document.getElementById('tableBox');
+  const q = (document.getElementById('searchBox') ? document.getElementById('searchBox').value : '').trim().toLowerCase();
   if(tab==='entries'){
     const pastSet = pastWinners();
     const actSet = activeSet();
-    box.innerHTML = state.entries.length ? `<table>
+    const shown = q ? state.entries.filter(e=>e.a.toLowerCase().includes(q)) : state.entries;
+    box.innerHTML = shown.length ? `<table>
       <tr><th>Wallet</th><th>Held</th><th>Draw pool</th>${actSet?'<th>Status</th>':''}${isHost?'<th></th>':''}</tr>
-      ${state.entries.map((e,i)=>{
+      ${shown.map(e=>{
+        const i = state.entries.indexOf(e);
         const top20 = topNow.has(e.a.toLowerCase());
         const half = pastSet.has(e.a.toLowerCase());
         const active = actSet ? actSet.has(e.a.toLowerCase()) : true;
@@ -677,7 +694,7 @@ function render(){
         ${actSet?`<td>${active?'<span class="tierchip tier-f">Active</span>':'<span class="hint">like + repost to activate</span>'}</td>`:''}
         ${isHost?`<td><button class="rowdel" onclick="removeEntry(${i})" title="Remove">×</button></td>`:''}
       </tr>`}).join('')}</table>`
-      : `<div class="empty">No wallets on the wheel yet. Holders load automatically — give it a moment.</div>`;
+      : `<div class="empty">${q ? 'No wallet matching that search — check the address, only snapshot holders are listed.' : 'No wallets on the wheel yet. Holders load automatically — give it a moment.'}</div>`;
   } else {
     const roundNo = (state.history||[]).length + 1;
     const spinRows = list => [...list].reverse().map(s=>`<tr>
